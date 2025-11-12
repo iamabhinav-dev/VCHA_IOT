@@ -1,0 +1,110 @@
+.command-history {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.no-commands {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #999;
+}
+
+.no-commands p {
+  margin-top: 1rem;
+  font-size: 1rem;
+}
+
+.command-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.command-item {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #ddd;
+  transition: all 0.2s;
+}
+
+.command-item.success {
+  border-left-color: #22c55e;
+}
+
+.command-item.failed {
+  border-left-color: #ef4444;
+  opacity: 0.7;
+}
+
+.command-item:hover {
+  background: #e9ecef;
+  transform: translateX(4px);
+}
+
+.command-icon {
+  flex-shrink: 0;
+  padding-top: 0.2rem;
+}
+
+.command-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.command-text {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 0.5rem;
+  word-wrap: break-word;
+}
+
+.command-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.command-action {
+  padding: 0.2rem 0.5rem;
+  background: #667eea;
+  color: white;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.command-device {
+  color: #555;
+}
+
+.command-time {
+  color: #999;
+  margin-left: auto;
+}
+
+/* Scrollbar styling */
+.command-history::-webkit-scrollbar {
+  width: 8px;
+}
+
+.command-history::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+.command-history::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 10px;
+}
+
+.command-history::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
