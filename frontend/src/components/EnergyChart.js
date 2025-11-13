@@ -3,10 +3,24 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import './EnergyChart.css';
 
 function EnergyChart({ timeline }) {
+  // Debug logging
+  console.log('=== ENERGY CHART DEBUG ===');
+  console.log('Timeline data:', timeline);
+  console.log('Timeline length:', timeline?.length);
+  
   const formatTime = (timeStr) => {
     if (!timeStr) return '';
     const date = new Date(timeStr);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // Check if date is valid
+    if (isNaN(date.getTime())) return timeStr;
+    
+    // Format in local timezone
+    return date.toLocaleTimeString([], { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false 
+    });
   };
 
   const formatEnergy = (value) => {
@@ -19,22 +33,49 @@ function EnergyChart({ timeline }) {
     return `${value.toFixed(3)} W`;
   };
 
-  // Process data for chart
-  const chartData = timeline.map((entry) => ({
-    time: formatTime(entry.time),
-    energy: parseFloat(entry.energy_wh) || 0,
-    power: parseFloat(entry.power_watts) || 0,
-    color: entry.color,
-  }));
+  // Process data for chart - calculate cumulative energy
+  let cumulativeEnergy = 0;
+  const chartData = timeline.map((entry, index) => {
+    cumulativeEnergy += parseFloat(entry.energy_wh) || 0;
+    return {
+      time: formatTime(entry.time || entry.time_hour),
+      energy: cumulativeEnergy,
+      power: parseFloat(entry.power_watts) || 0,
+      energyDelta: parseFloat(entry.energy_wh) || 0,
+      color: entry.color || 'N/A',
+      index: index
+    };
+  });
+  
+  console.log('Processed chart data:', chartData);
+  console.log('Chart data length:', chartData.length);
+  
+  // Add a starting point at 0 if we have data
+  if (chartData.length > 0) {
+    const firstTime = new Date(timeline[0].time || timeline[0].time_hour);
+    firstTime.setMinutes(firstTime.getMinutes() - 1);
+    chartData.unshift({
+      time: formatTime(firstTime.toISOString()),
+      energy: 0,
+      power: 0,
+      energyDelta: 0,
+      color: 'Start',
+      index: -1
+    });
+  }
 
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
+      const data = payload[0].payload;
       return (
         <div className="custom-tooltip">
-          <p className="tooltip-time">{payload[0].payload.time}</p>
-          <p className="tooltip-color">Color: {payload[0].payload.color}</p>
-          <p className="tooltip-energy">Energy: {formatEnergy(payload[0].value)}</p>
-          {payload[1] && (
+          <p className="tooltip-time">{data.time}</p>
+          {data.color !== 'Start' && <p className="tooltip-color">Color: {data.color}</p>}
+          <p className="tooltip-energy">Total: {formatEnergy(payload[0].value)}</p>
+          {data.energyDelta > 0 && (
+            <p className="tooltip-delta">+{formatEnergy(data.energyDelta)}</p>
+          )}
+          {payload[1] && data.power > 0 && (
             <p className="tooltip-power">Power: {formatPower(payload[1].value)}</p>
           )}
         </div>
@@ -71,9 +112,11 @@ function EnergyChart({ timeline }) {
                 <Area 
                   type="monotone" 
                   dataKey="energy" 
-                  stroke="#d1d5db" 
-                  fill="#e9ecef"
+                  stroke="#4c6ef5" 
+                  fill="#a5c6ff"
                   strokeWidth={2}
+                  isAnimationActive={true}
+                  animationDuration={300}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -99,9 +142,11 @@ function EnergyChart({ timeline }) {
                 <Area 
                   type="monotone" 
                   dataKey="power" 
-                  stroke="#d1d5db" 
-                  fill="#e9ecef"
+                  stroke="#20c997" 
+                  fill="#96f2d7"
                   strokeWidth={2}
+                  isAnimationActive={true}
+                  animationDuration={300}
                 />
               </AreaChart>
             </ResponsiveContainer>

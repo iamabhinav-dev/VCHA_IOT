@@ -39,6 +39,7 @@ function App() {
   const fetchEnergyStats = useCallback(async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/api/energy/stats?hours=24`);
+      console.log('Energy Stats Response:', response.data);
       setEnergyStats(response.data);
     } catch (error) {
       console.error('Error fetching energy stats:', error);
@@ -49,6 +50,7 @@ function App() {
   const fetchEnergyTimeline = useCallback(async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/api/energy/timeline?hours=24`);
+      console.log('Energy Timeline Response:', response.data);
       setEnergyTimeline(response.data.timeline || []);
     } catch (error) {
       console.error('Error fetching energy timeline:', error);
@@ -56,19 +58,34 @@ function App() {
   }, []);
 
   // Control device
-  const controlDevice = async (deviceId, color) => {
+  const controlDevice = async (deviceId, ledId, color) => {
+    console.log('=== CONTROL COMMAND ===');
+    console.log('Device ID:', deviceId);
+    console.log('LED ID:', ledId);
+    console.log('Color:', color);
+    console.log('Sending to API:', {
+      device_id: deviceId,
+      led_id: ledId,
+      color: color
+    });
+    
     try {
-      await axios.post(`${API_BASE_URL}/api/control`, {
+      const response = await axios.post(`${API_BASE_URL}/api/control`, {
         device_id: deviceId,
+        led_id: ledId,
         color: color
       });
+      console.log('API Response:', response.data);
       // Refresh data after control
       setTimeout(() => {
         fetchDevices();
         fetchCommands();
+        fetchEnergyStats();
+        fetchEnergyTimeline();
       }, 500);
     } catch (error) {
       console.error('Error controlling device:', error);
+      console.error('Error details:', error.response?.data);
       alert('Failed to control device');
     }
   };
@@ -139,7 +156,7 @@ function App() {
       fetchCommands();
       fetchEnergyStats();
       fetchEnergyTimeline();
-    }, 10000); // Refresh every 10 seconds
+    }, 2000); // Refresh every 2 seconds for more responsive updates
 
     return () => clearInterval(interval);
   }, [fetchDevices, fetchCommands, fetchEnergyStats, fetchEnergyTimeline]);

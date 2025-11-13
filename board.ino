@@ -5,21 +5,31 @@
 // --- Configuration ---
 const char* ssid = "Abhi nav";
 const char* password = "00000001";
-const char* udpAddress = "192.168.37.139"; // <-- IMPORTANT: Make sure this is your computer's IP
+const char* udpAddress = "192.168.9.139";
 
 // --- Dedicated Ports ---
-const int udpAudioPort = 12345;   // Port for sending audio
-const int udpControlPort = 12346; // Port for commands and status
+const int udpAudioPort = 12345;
+const int udpControlPort = 12346;
 
 // --- Hardware Pin Assignments ---
-const int redLedPin = 18;
-const int greenLedPin = 22;
-const int blueLedPin = 19;
+// LED 1 (4-pin RGB)
+const int redLedPin_1 = 18;
+const int greenLedPin_1 = 22;
+const int blueLedPin_1 = 19;
 
-// --- NEW: Audio Activity LED ---
-const int audioActivityLedPin = 23;     // LED to show when sound is detected
-const int AUDIO_THRESHOLD = 100;      // <-- *** TUNE THIS VALUE ***
-                                      
+// NEW: LED 2 (2-pin LED)
+const int led2Pin = 25; // Connect long leg (+) to resistor, then to this pin. Short leg (-) to GND.
+
+const int audioActivityLedPin = 23;
+const int buttonPin = 13;
+
+// --- Wake Word Detection Settings ---
+const int SILENCE_THRESHOLD = 100;
+const int SPEECH_THRESHOLD = 500;
+const int WAKE_PATTERN_MIN_MS = 60;
+const int WAKE_PATTERN_MAX_MS = 400;
+const int SILENCE_AFTER_WAKE_MS = 200;
+const int RECORDING_DURATION_MS = 3000;
 
 // --- I2S Microphone Pins ---
 #define I2S_WS 2
@@ -36,34 +46,51 @@ const int AUDIO_THRESHOLD = 100;      // <-- *** TUNE THIS VALUE ***
 const int audio_buffer_size = 1024;
 int16_t audio_buffer[audio_buffer_size];
 
+// --- Wake Detection State ---
+enum WakeState {
+  LISTENING,
+  WAKE_DETECTED,
+  RECORDING
+};
+
+WakeState currentState = LISTENING;
+unsigned long speechStartTime = 0;
+unsigned long silenceStartTime = 0;
+unsigned long recordingStartTime = 0;
+
 // --- Status Update Timer ---
 unsigned long lastStatusUpdate = 0;
-const unsigned long statusUpdateInterval = 5000; // Send status every 5 seconds
+const unsigned long statusUpdateInterval = 5000;
 
 // --- Current LED State ---
-String currentColor = "OFF";
+String currentColorLed1 = "OFF"; // Will store color
+String currentColorLed2 = "OFF"; // Will store "ON" or "OFF"
 
-// --- Two UDP Objects ---
-WiFiUDP udpAudio;   // For sending audio
-WiFiUDP udpControl; // For commands and status
+// --- UDP Objects ---
+WiFiUDP udpAudio;
+WiFiUDP udpControl;
 
-// --- Helper function to control the RGB LED ---
-void setLedColor(int red, int green, int blue) {
-  digitalWrite(redLedPin, red);
-  digitalWrite(greenLedPin, green);
-  digitalWrite(blueLedPin, blue);
+// --- Helper Functions ---
+
+// Function for RGB LED 1
+void setLed1Color(int red, int green, int blue) {
+  digitalWrite(redLedPin_1, red);
+  digitalWrite(greenLedPin_1, green);
+  digitalWrite(blueLedPin_1, blue);
 }
 
-// --- Function to update current color state ---
-void updateColorState(String color) {
-  currentColor = color;
-  Serial.printf("[STATE] Current color updated to: %s\n", color.c_str());
+void updateLed1ColorState(String color) {
+  currentColorLed1 = color;
 }
 
-// --- Function to send status update to server ---
+// NEW: Function for 2-pin LED 2
+void setLed2State(int state, String stateName) {
+  digitalWrite(led2Pin, state);
+  currentColorLed2 = stateName;
+}
+
 void sendStatusUpdate() {
-  String statusMessage = "STATUS:" + currentColor;
-  // Send status over the CONTROL port
+  String statusMessage = "STATUS:LED1=" + currentColorLed1 + ",LED2=" + currentColorLed2;
   udpControl.beginPacket(udpAddress, udpControlPort);
   udpControl.print(statusMessage);
   udpControl.endPacket();
@@ -72,33 +99,40 @@ void sendStatusUpdate() {
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n\n--- ESP32 Voice Streamer (Dashboard Edition) ---");
+  delay(1000);
+  Serial.println("\n\n╔════════════════════════════════════════════╗");
+  Serial.println("║   ESP32 Voice Control (1x RGB, 1x Simple)  ║");
+  Serial.println("╚════════════════════════════════════════════╝\n");
 
   // Setup LED pins
-  pinMode(redLedPin, OUTPUT);
-  pinMode(greenLedPin, OUTPUT);
-  pinMode(blueLedPin, OUTPUT);
-  setLedColor(LOW, LOW, LOW); // Start with all LEDs off
-  Serial.println("[SETUP] RGB LED GPIOs initialized.");
+  pinMode(redLedPin_1, OUTPUT);   // LED 1 (RGB)
+  pinMode(greenLedPin_1, OUTPUT);
+  pinMode(blueLedPin_1, OUTPUT);
+  
+  pinMode(led2Pin, OUTPUT); // NEW: Pin for LED 2 (Simple)
 
-  // --- NEW: Setup Audio Activity LED ---
   pinMode(audioActivityLedPin, OUTPUT);
-  digitalWrite(audioActivityLedPin, LOW); // Start with it off
-  Serial.println("[SETUP] Audio Activity LED initialized on GPIO 23.");
+  pinMode(buttonPin, INPUT_PULLUP);
+  
+  // Set both LEDs to OFF
+  setLed1Color(LOW, LOW, LOW);
+  setLed2State(LOW, "OFF"); // NEW
+  
+  digitalWrite(audioActivityLedPin, LOW); // Listening LED OFF
+  Serial.println("[✓] GPIO pins initialized");
 
   // Connect to WiFi
-  Serial.printf("[SETUP] Connecting to WiFi: %s\n", ssid);
+  Serial.printf("[WIFI] Connecting to: %s", ssid);
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\n[SETUP] WiFi Connected!");
-  Serial.print("[INFO] ESP32 IP Address: ");
-  Serial.println(WiFi.localIP());
+  Serial.println(" Connected!");
+  Serial.printf("[INFO] ESP32 IP: %s\n", WiFi.localIP().toString().c_str());
 
-  // Initialize I2S microphone
-  Serial.println("[SETUP] Configuring I2S...");
+  // Initialize I2S
+  Serial.println("[I2S] Configuring microphone...");
   i2s_config_t i2s_config = {
       .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
       .sample_rate = I2S_SAMPLE_RATE,
@@ -111,6 +145,7 @@ void setup() {
       .use_apll = false
   };
   i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
+  
   const i2s_pin_config_t pin_config = {
       .bck_io_num = I2S_SCK,
       .ws_io_num = I2S_WS,
@@ -118,68 +153,110 @@ void setup() {
       .data_in_num = I2S_SD
   };
   i2s_set_pin(I2S_PORT, &pin_config);
-  Serial.println("[SETUP] I2S driver installed successfully.");
+  Serial.println("[✓] I2S initialized");
 
-  // Start listening on the CONTROL port
+  // Start UDP
   udpControl.begin(udpControlPort);
-  Serial.printf("[SETUP] UDP listener for commands started on port %d.\n", udpControlPort);
-  Serial.printf("[SETUP] UDP sender for audio will use port %d.\n", udpAudioPort);
+  Serial.printf("[UDP] Listening on port %d\n", udpControlPort);
   
-  // Send initial status
   delay(1000);
   sendStatusUpdate();
   
-  Serial.println("----------------------------------------");
-  Serial.println("[INFO] System ready! Streaming audio and accepting commands...");
-  Serial.println("----------------------------------------");
+  Serial.println("\n════════════════════════════════════════════");
+  Serial.println("  🎤 Make a short sound OR Press Button!");
+  Serial.println("  💡 LED OFF = Listening | LED ON = Recording");
+  Serial.println("════════════════════════════════════════════\n");
 }
 
 void loop() {
-  // 1. Read and send audio data
-  size_t bytesRead = 0;
-  esp_err_t result = i2s_read(I2S_PORT, &audio_buffer, audio_buffer_size * sizeof(int16_t), &bytesRead, portMAX_DELAY);
+  // ═══════════════════════════════════════════════════════════
+  // 1. BUTTON CHECK
+  // ═══════════════════════════════════════════════════════════
+  static bool wasButtonPressed = false;
+  
+  if (digitalRead(buttonPin) == LOW) {
+    if (!wasButtonPressed) {
+      Serial.println("\n[BUTTON] ✓✓✓ PRESSED! Starting manual recording...");
+      currentState = RECORDING;
+      recordingStartTime = millis();
+      digitalWrite(audioActivityLedPin, HIGH);
+      wasButtonPressed = true;
+    }
+  } else if (wasButtonPressed) {
+    Serial.println("[BUTTON] Released");
+    wasButtonPressed = false;
+  }
 
-  int average_magnitude = 0;
-  int samples_read = 0;
+  // ═══════════════════════════════════════════════════════════
+  // 2. AUDIO PROCESSING (State Machine)
+  // ═══════════════════════════════════════════════════════════
+  size_t bytesRead = 0;
+  esp_err_t result = i2s_read(I2S_PORT, &audio_buffer, audio_buffer_size * sizeof(int16_t), 
+                                &bytesRead, portMAX_DELAY);
 
   if (result == ESP_OK && bytesRead > 0) {
-    
-    // --- NEW: Robust Audio Activity Logic ---
-    
-    // Calculate how many 16-bit samples we actually read
-    samples_read = bytesRead / sizeof(int16_t);
-
+    int samples_read = bytesRead / sizeof(int16_t);
     uint64_t total_magnitude = 0;
     for (int i = 0; i < samples_read; i++) {
       total_magnitude += abs(audio_buffer[i]);
     }
-
-    // Prevent division by zero
-    if (samples_read > 0) {
-      average_magnitude = total_magnitude / samples_read;
-    }
+    int average_magnitude = (samples_read > 0) ? (total_magnitude / samples_read) : 0;
     
-    // Control the LED
-    if (average_magnitude > AUDIO_THRESHOLD) {
-      digitalWrite(audioActivityLedPin, HIGH); // Sound detected
-    } else {
-      digitalWrite(audioActivityLedPin, LOW);  // Silence
+    switch (currentState) {
+      case LISTENING:
+        digitalWrite(audioActivityLedPin, LOW); // LED OFF
+        if (average_magnitude > SPEECH_THRESHOLD) {
+          if (speechStartTime == 0) {
+            speechStartTime = millis();
+            Serial.println("[WAKE] Detecting sound pattern...");
+          }
+        } else {
+          if (speechStartTime > 0) {
+            unsigned long speechDuration = millis() - speechStartTime;
+            Serial.printf("[WAKE] Pattern duration: %lu ms\n", speechDuration);
+            
+            if (speechDuration >= WAKE_PATTERN_MIN_MS && 
+                speechDuration <= WAKE_PATTERN_MAX_MS) {
+              Serial.println("\n🔥🔥🔥 WAKE PATTERN DETECTED! 🔥🔥🔥\n");
+              currentState = WAKE_DETECTED;
+              silenceStartTime = millis();
+            } else {
+              Serial.println("[WAKE] Pattern too short or too long, ignoring.");
+            }
+            speechStartTime = 0;
+          }
+        }
+        break;
+      
+      case WAKE_DETECTED:
+        digitalWrite(audioActivityLedPin, LOW); // LED OFF
+        if (millis() - silenceStartTime >= SILENCE_AFTER_WAKE_MS) {
+          Serial.println("[RECORDING] Starting 3-second recording...");
+          currentState = RECORDING;
+          recordingStartTime = millis();
+        }
+        break;
+      
+      case RECORDING:
+        digitalWrite(audioActivityLedPin, HIGH); // LED ON
+        
+        udpAudio.beginPacket(udpAddress, udpAudioPort);
+        udpAudio.write((const uint8_t*)audio_buffer, bytesRead);
+        udpAudio.endPacket();
+        
+        if (millis() - recordingStartTime >= RECORDING_DURATION_MS) {
+          Serial.println("\n[RECORDING] Finished. Listening for wake pattern again...");
+          currentState = LISTENING;
+          speechStartTime = 0;
+          silenceStartTime = 0;
+        }
+        break;
     }
-    // --- END OF NEW LOGIC ---
-
-    // Send audio over the AUDIO port (No change)
-    udpAudio.beginPacket(udpAddress, udpAudioPort);
-    udpAudio.write((const uint8_t*)audio_buffer, bytesRead);
-    udpAudio.endPacket();
   }
 
-  // --- CRITICAL DEBUGGING ---
-  // This will print every loop.
-  // We need to see these numbers.
-  Serial.printf("Bytes Read: %d, \t Audio Level: %d\n", bytesRead, average_magnitude);
-
-
-  // 2. Check for incoming commands from the server (uses udpControl)
+  // ═══════════════════════════════════════════════════════════
+  // 3. HANDLE INCOMING COMMANDS (*** MODIFIED LOGIC ***)
+  // ═══════════════════════════════════════════════════════════
   int packetSize = udpControl.parsePacket();
   if (packetSize) {
     char incomingPacket[32];
@@ -187,39 +264,82 @@ void loop() {
     if (len > 0) {
       incomingPacket[len] = 0;
     }
-    Serial.printf("\n>>> [COMMAND] Received command: '%s'\n", incomingPacket);
+    Serial.printf("\n>>> [COMMAND] Received: '%s'\n", incomingPacket);
 
-    // Handle color commands
-    if (strcmp(incomingPacket, "COLOR_RED") == 0) {
-      setLedColor(HIGH, LOW, LOW);
-      updateColorState("RED");
-    } else if (strcmp(incomingPacket, "COLOR_GREEN") == 0) {
-      setLedColor(LOW, HIGH, LOW);
-      updateColorState("GREEN");
-    } else if (strcmp(incomingPacket, "COLOR_BLUE") == 0) {
-      setLedColor(LOW, LOW, HIGH);
-      updateColorState("BLUE");
-    } else if (strcmp(incomingPacket, "COLOR_WHITE") == 0) {
-      setLedColor(HIGH, HIGH, HIGH);
-      updateColorState("WHITE");
-    } else if (strcmp(incomingPacket, "COLOR_OFF") == 0) {
-      setLedColor(LOW, LOW, LOW);
-      updateColorState("OFF");
-    } else if (strcmp(incomingPacket, "COLOR_PURPLE") == 0) {
-      setLedColor(HIGH, LOW, HIGH);
-      updateColorState("PURPLE");
-    } else if (strcmp(incomingPacket, "COLOR_YELLOW") == 0) {
-      setLedColor(HIGH, HIGH, LOW);
-      updateColorState("YELLOW");
+    // --- LED 1 Commands (RGB) ---
+    if (strcmp(incomingPacket, "LED1_RED") == 0) {
+      setLed1Color(HIGH, LOW, LOW);
+      updateLed1ColorState("RED");
+    } else if (strcmp(incomingPacket, "LED1_GREEN") == 0) {
+      setLed1Color(LOW, HIGH, LOW);
+      updateLed1ColorState("GREEN");
+    } else if (strcmp(incomingPacket, "LED1_BLUE") == 0) {
+      setLed1Color(LOW, LOW, HIGH);
+      updateLed1ColorState("BLUE");
+    } else if (strcmp(incomingPacket, "LED1_WHITE") == 0 || strcmp(incomingPacket, "LED1_ON") == 0) {
+      setLed1Color(HIGH, HIGH, HIGH);
+      updateLed1ColorState("WHITE");
+    } else if (strcmp(incomingPacket, "LED1_PURPLE") == 0) {
+      setLed1Color(HIGH, LOW, HIGH);
+      updateLed1ColorState("PURPLE");
+    } else if (strcmp(incomingPacket, "LED1_YELLOW") == 0) {
+      setLed1Color(HIGH, HIGH, LOW);
+      updateLed1ColorState("YELLOW");
+    } else if (strcmp(incomingPacket, "LED1_OFF") == 0) {
+      setLed1Color(LOW, LOW, LOW);
+      updateLed1ColorState("OFF");
+    }
+
+    // --- LED 2 Commands (2-pin ON/OFF) ---
+    else if (strcmp(incomingPacket, "LED2_OFF") == 0) {
+      setLed2State(LOW, "OFF");
+    }
+    // Any other "LED2" command (ON, RED, GREEN, etc.) just turns it ON
+    else if (strncmp(incomingPacket, "LED2_ON", 5) == 0) {
+      setLed2State(HIGH, "ON");
+    }
+
+    // --- ALL (Both) Commands ---
+    else if (strcmp(incomingPacket, "ALL_OFF") == 0) {
+      setLed1Color(LOW, LOW, LOW);
+      updateLed1ColorState("OFF");
+      setLed2State(LOW, "OFF");
+    }
+    // Any other "ALL" command sets LED 1's color and turns LED 2 ON
+    else if (strcmp(incomingPacket, "ALL_RED") == 0) {
+      setLed1Color(HIGH, LOW, LOW);
+      updateLed1ColorState("RED");
+      setLed2State(HIGH, "ON");
+    } else if (strcmp(incomingPacket, "ALL_GREEN") == 0) {
+      setLed1Color(LOW, HIGH, LOW);
+      updateLed1ColorState("GREEN");
+      setLed2State(HIGH, "ON");
+    } else if (strcmp(incomingPacket, "ALL_BLUE") == 0) {
+      setLed1Color(LOW, LOW, HIGH);
+      updateLed1ColorState("BLUE");
+      setLed2State(HIGH, "ON");
+    } else if (strcmp(incomingPacket, "ALL_WHITE") == 0 || strcmp(incomingPacket, "ALL_ON") == 0) {
+      setLed1Color(HIGH, HIGH, HIGH);
+      updateLed1ColorState("WHITE");
+      setLed2State(HIGH, "ON");
+    } else if (strcmp(incomingPacket, "ALL_PURPLE") == 0) {
+      setLed1Color(HIGH, LOW, HIGH);
+      updateLed1ColorState("PURPLE");
+      setLed2State(HIGH, "ON");
+    } else if (strcmp(incomingPacket, "ALL_YELLOW") == 0) {
+      setLed1Color(HIGH, HIGH, LOW);
+      updateLed1ColorState("YELLOW");
+      setLed2State(HIGH, "ON");
     }
     
-    // Send immediate status update after command
+    // Send status update after command
     sendStatusUpdate();
-    
-    Serial.printf(">>> [LED] Updated to: %s\n\n", currentColor.c_str());
+    Serial.printf(">>> [LED] Updated. LED1: %s, LED2: %s\n\n", currentColorLed1.c_str(), currentColorLed2.c_str());
   }
 
-  // 3. Send periodic status updates (uses udpControl)
+  // ═══════════════════════════════════════════════════════════
+  // 4. PERIODIC STATUS UPDATES
+  // ═══════════════════════════════════════════════════════════
   unsigned long currentMillis = millis();
   if (currentMillis - lastStatusUpdate >= statusUpdateInterval) {
     sendStatusUpdate();

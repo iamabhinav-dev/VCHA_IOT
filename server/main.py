@@ -13,15 +13,14 @@ from typing import List, Optional
 import uvicorn
 from datetime import datetime
 
-# (Assuming database.py and energy_simulator.py are present)
+# Import updated helper files
 from database import Database
 from energy_simulator import EnergySimulator
 
 # --- Configuration ---
 UDP_IP = "0.0.0.0"
-# --- NEW: Dedicated Ports ---
-UDP_AUDIO_PORT = 12345   # Port for receiving audio
-UDP_CONTROL_PORT = 12346 # Port for commands and status
+UDP_AUDIO_PORT = 12345
+UDP_CONTROL_PORT = 12346
 HTTP_PORT = 5000
 SAMPLE_RATE = 16000
 SAMPLE_WIDTH = 2
@@ -71,19 +70,21 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# --- Pydantic Models (No changes) ---
+# --- Pydantic Models ---
 class ControlCommand(BaseModel):
     device_id: str
+    led_id: str  # "LED1", "LED2", or "ALL"
     color: str
 
 class DeviceStatus(BaseModel):
     device_id: str
     ip_address: str
-    current_color: str
     status: str
     last_seen: Optional[str]
+    current_color_led1: Optional[str]
+    current_color_led2: Optional[str]
 
-# --- PyAudio & Recognizer (No changes) ---
+# --- PyAudio & Recognizer ---
 p = pyaudio.PyAudio()
 stream = p.open(format=p.get_format_from_width(SAMPLE_WIDTH),
                 channels=CHANNELS,
@@ -91,31 +92,25 @@ stream = p.open(format=p.get_format_from_width(SAMPLE_WIDTH),
                 output=True)
 r = sr.Recognizer()
 
-# --- NEW: Two UDP Sockets ---
-# Socket for AUDIO ONLY
+# --- UDP Sockets ---
 sock_audio = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock_audio.bind((UDP_IP, UDP_AUDIO_PORT))
 sock_audio.setblocking(0)
 
-# Socket for CONTROL ONLY (Commands & Status)
 sock_control = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock_control.bind((UDP_IP, UDP_CONTROL_PORT))
 sock_control.setblocking(0)
 
-
 # --- Helper Functions ---
 def play_audio_in_background(audio_data):
-    """Plays the given audio bytes without blocking the main thread."""
     print("[PLAYBACK] Starting background audio playback.")
     stream.write(audio_data)
     print("[PLAYBACK] Background playback finished.")
 
 def get_device_id_from_address(addr):
-    """Convert IP address to device ID"""
     return f"esp32_{addr[0].replace('.', '_')}"
 
 async def broadcast_update(update_type: str, data: dict):
-    """Broadcast update to all WebSocket clients"""
     message = {
         "type": update_type,
         "data": data,
@@ -123,97 +118,147 @@ async def broadcast_update(update_type: str, data: dict):
     }
     await manager.broadcast(message)
 
+# --- FIXED: process_audio_buffer ---
 def process_audio_buffer(audio_data_bytes, client_address):
-    """Processes audio with Google API while playing it back asynchronously."""
+    """Processes audio and handles correct ON/OFF logic for LED 1"""
     print(f"\n[PROCESS] Processing {len(audio_data_bytes)} bytes for {client_address}...")
-    print(f"[PROCESS] Audio duration: {len(audio_data_bytes) / AUDIO_BYTES_PER_SECOND:.2f} seconds")
     
     device_id = get_device_id_from_address(client_address)
     db.upsert_device(device_id, client_address[0])
     
-    # Start audio playback in background
     playback_thread = threading.Thread(target=play_audio_in_background, args=(audio_data_bytes,))
     playback_thread.start()
 
     try:
         audio_data = sr.AudioData(audio_data_bytes, SAMPLE_RATE, SAMPLE_WIDTH)
-        
         print("[PROCESS] Sending to Google for recognition...")
         text = r.recognize_google(audio_data)
         print(f"[SUCCESS] Recognized Text: '{text}'")
 
-        # Command logic
-        text_lower = text.lower()
+        # --- Normalize text to fix "one"/"two"/"to" ambiguity ---
+        text_normalized = text.lower()
+        text_normalized = text_normalized.replace(" light one", " light 1")
+        text_normalized = text_normalized.replace(" led one", " led 1")
+        text_normalized = text_normalized.replace(" light two", " light 2")
+        text_normalized = text_normalized.replace(" led two", " led 2")
+        text_normalized = text_normalized.replace(" light to", " light 2")
+        text_normalized = text_normalized.replace(" led to", " led 2")
+
+        words = text_normalized.split()
+        
         command_to_send = None
-        color_name = None
+        color_command_part = None 
+        led_id = "ALL"
+        led_command_part = "ALL_"
 
-        if "red" in text_lower:
-            command_to_send = b"COLOR_RED"
-            color_name = "RED"
-        elif "green" in text_lower:
-            command_to_send = b"COLOR_GREEN"
-            color_name = "GREEN"
-        elif "blue" in text_lower:
-            command_to_send = b"COLOR_BLUE"
-            color_name = "BLUE"
-        elif "white" in text_lower or "light on" in text_lower:
-            command_to_send = b"COLOR_WHITE"
-            color_name = "WHITE"
-        elif "light off" in text_lower or "turn off" in text_lower:
-            command_to_send = b"COLOR_OFF"
-            color_name = "OFF"
-        elif "purple" in text_lower:
-            command_to_send = b"COLOR_PURPLE"
-            color_name = "PURPLE"
-        elif "yellow" in text_lower:
-            command_to_send = b"COLOR_YELLOW"
-            color_name = "YELLOW"
+        # --- Detect LED ID by looking for "one", "two", "to", "1", "2" in the words ---
+        if "one" in words or "1" in words:
+            led_id = "LED1"
+            led_command_part = "LED1_"
+        elif "two" in words or "to" in words or "2" in words:
+            led_id = "LED2"
+            led_command_part = "LED2_"
+        elif "all" in words or "both" in words:
+            led_id = "ALL"
+            led_command_part = "ALL_"
 
-        if command_to_send and color_name:
-            # --- MODIFIED: Send command over the CONTROL socket ---
-            # We use client_address[0] (the IP) and the NEW control port
+        # --- Find color/action from normalized text and words ---
+        if "off" in words:
+            color_command_part = "OFF"
+        elif "on" in words:
+            color_command_part = "ON"
+        elif "red" in words:
+            color_command_part = "RED"
+        elif "green" in words:
+            color_command_part = "GREEN"
+        elif "blue" in words:
+            color_command_part = "BLUE"
+        elif "white" in words:
+            color_command_part = "WHITE"
+        elif "purple" in words:
+            color_command_part = "PURPLE"
+        elif "yellow" in words:
+            color_command_part = "YELLOW"
+        
+        if color_command_part:
+            # Determine the actual command to send to ESP32 and logical state for DB/Energy Sim
+            color_for_led1_logic = None
+            color_for_led2_logic = None
+            color_for_esp = color_command_part
+
+            if led_id == "LED1":
+                # LED1 supports full RGB colors
+                color_for_led1_logic = color_command_part
+                color_for_esp = color_command_part
+            elif led_id == "LED2":
+                # LED2 only supports ON/OFF
+                if color_command_part == "OFF":
+                    color_for_esp = "OFF"
+                    color_for_led2_logic = "OFF"
+                else:
+                    color_for_esp = "ON"
+                    color_for_led2_logic = "ON"
+            elif led_id == "ALL":
+                # For ALL: LED1 gets the color, LED2 gets ON/OFF
+                if color_command_part == "OFF":
+                    color_for_led1_logic = "OFF"
+                    color_for_led2_logic = "OFF"
+                    color_for_esp = "OFF"
+                elif color_command_part == "ON":
+                    color_for_led1_logic = "WHITE"
+                    color_for_led2_logic = "ON"
+                    color_for_esp = "WHITE"
+                else:
+                    color_for_led1_logic = color_command_part
+                    color_for_led2_logic = "ON"
+                    color_for_esp = color_command_part
+            
+            command_str = f"{led_command_part}{color_for_esp}"
+            command_to_send = command_str.encode('utf-8')
+
+            # Send command to ESP32
             control_addr = (client_address[0], UDP_CONTROL_PORT)
             sock_control.sendto(command_to_send, control_addr)
-            print(f"[ACTION] Sent '{command_to_send.decode()}' command to {control_addr}")
+            print(f"[ACTION] Sent '{command_str}' command to {control_addr}")
             
-            # (Rest of your database/energy logic is fine)
-            energy_data = energy_sim.update_device_state(device_id, color_name)
-            if energy_data:
-                db.add_energy_log(
-                    energy_data['device_id'],
-                    energy_data['power_watts'],
-                    energy_data['duration_seconds'],
-                    energy_data['color']
-                )
+            # Update DB and Energy Sim
+            if color_for_led1_logic:
+                db.update_device_color(device_id, "LED1", color_for_led1_logic)
+                energy_logs_1 = energy_sim.update_device_state(device_id, "LED1", color_for_led1_logic)
+                for log in energy_logs_1:
+                    db.add_energy_log(log['device_id'], log['power_watts'], log['duration_seconds'], log['color'])
+
+            if color_for_led2_logic:
+                db.update_device_color(device_id, "LED2", color_for_led2_logic)
+                energy_logs_2 = energy_sim.update_device_state(device_id, "LED2", color_for_led2_logic)
+                for log in energy_logs_2:
+                    db.add_energy_log(log['device_id'], log['power_watts'], log['duration_seconds'], log['color'])
             
-            db.update_device_color(device_id, color_name)
-            db.add_command(text, command_to_send.decode(), device_id, True)
+            db.add_command(text, command_str, device_id, True)
             
             asyncio.run(broadcast_update("command_executed", {
                 "device_id": device_id,
                 "command_text": text,
-                "color": color_name,
+                "led_id": led_id,
+                "color_led1": color_for_led1_logic,
+                "color_led2": color_for_led2_logic,
                 "success": True
             }))
             
         else:
             print("[INFO] No command recognized in the text.")
-            # Don't save unrecognized commands to database
-            
             asyncio.run(broadcast_update("command_failed", {
                 "device_id": device_id,
                 "command_text": text,
-                "reason": "No valid color command found"
+                "reason": "No valid command found"
             }))
 
     except sr.UnknownValueError:
         print("[ERROR] Google could not understand the audio.")
-        # Don't save unknown/failed recognition to database
     except sr.RequestError as e:
         print(f"[ERROR] Could not request results from Google; {e}")
-        # Don't save API errors to database
 
-# --- MODIFIED: UDP Audio Processing Thread ---
+# --- UDP Audio Thread ---
 def udp_audio_listener():
     """Main UDP listener loop for AUDIO (runs in separate thread)"""
     print("[UDP_AUDIO] Audio listener thread started")
@@ -221,10 +266,8 @@ def udp_audio_listener():
     
     while True:
         try:
-            # --- MODIFIED: Use sock_audio ---
             data, addr = sock_audio.recvfrom(2048)
             
-            # (Buffer logic is the same, but now only handles audio)
             if addr not in client_buffers:
                 client_buffers[addr] = {'buffer': b'', 'last_packet_time': time.time()}
                 device_id = get_device_id_from_address(addr)
@@ -242,7 +285,6 @@ def udp_audio_listener():
         except BlockingIOError:
             pass
 
-        # (Timeout logic is the same)
         for addr in list(client_buffers.keys()):
             time_since_last_packet = time.time() - client_buffers[addr]['last_packet_time']
             if time_since_last_packet > PACKET_TIMEOUT_SECONDS:
@@ -252,11 +294,10 @@ def udp_audio_listener():
                 else:
                     print(f"[INFO] Client {addr} timed out with insufficient audio. Discarding buffer.")
                 del client_buffers[addr]
-                print(f"[INFO] Client {addr} buffer cleared after timeout.")
                 
         time.sleep(0.01)
 
-# --- NEW: UDP Status Processing Thread ---
+# --- UDP Status Thread ---
 def udp_status_listener():
     """Main UDP listener loop for STATUS messages (runs in separate thread)"""
     print("[UDP_STATUS] Status listener thread started")
@@ -264,24 +305,33 @@ def udp_status_listener():
     
     while True:
         try:
-            # --- MODIFIED: Use sock_control ---
-            data, addr = sock_control.recvfrom(128) # Status messages are small
-            
+            data, addr = sock_control.recvfrom(128)
             message = data.decode('utf-8')
             
             if message.startswith("STATUS:"):
-                color = message.split(":", 1)[1]
                 device_id = get_device_id_from_address(addr)
+                status_part = message.split(":", 1)[1].strip()
                 
-                print(f"[STATUS] Received status from {device_id}: {color}")
+                color_led1 = "UNKNOWN"
+                color_led2 = "UNKNOWN"
                 
-                # Update database
-                db.update_device_color(device_id, color)
+                try:
+                    parts = status_part.split(',')
+                    if len(parts) == 2:
+                        color_led1 = parts[0].split('=')[1]
+                        color_led2 = parts[1].split('=')[1]
+                except Exception as e:
+                    print(f"[STATUS] Error parsing status message: {e} - Msg: {message}")
+
+                print(f"[STATUS] Received from {device_id}: LED1={color_led1}, LED2={color_led2}")
                 
-                # Broadcast update to dashboard
+                db.update_device_color(device_id, "LED1", color_led1)
+                db.update_device_color(device_id, "LED2", color_led2)
+                
                 asyncio.run(broadcast_update("status_update", {
                     "device_id": device_id,
-                    "color": color
+                    "color_led1": color_led1,
+                    "color_led2": color_led2
                 }))
             
         except BlockingIOError:
@@ -307,54 +357,88 @@ async def get_device(device_id: str):
 
 @app.post("/api/control")
 async def control_device(command: ControlCommand):
-    """Manually send command to device"""
+    """Manually send command to device, handling correct LED1 logic"""
     device = db.get_device(command.device_id)
     if not device:
         return {"success": False, "error": "Device not found"}
     
-    color_commands = {
-        "RED": b"COLOR_RED", "GREEN": b"COLOR_GREEN", "BLUE": b"COLOR_BLUE",
-        "WHITE": b"COLOR_WHITE", "OFF": b"COLOR_OFF", "PURPLE": b"COLOR_PURPLE",
-        "YELLOW": b"COLOR_YELLOW"
-    }
+    led_id_upper = command.led_id.upper()
+    color_upper = command.color.upper()
     
-    command_bytes = color_commands.get(command.color.upper())
-    if not command_bytes:
-        return {"success": False, "error": "Invalid color"}
+    valid_leds = ["LED1", "LED2", "ALL"]
+    valid_colors_rgb = ["RED", "GREEN", "BLUE", "WHITE", "OFF", "PURPLE", "YELLOW"]
+    valid_colors_simple = ["ON", "OFF"]
     
-    # Get IP from device ID
-    if device['ip_address'].startswith('esp32_'):
-        ip_address = device['ip_address'].replace('esp32_', '').replace('_', '.')
-    else:
-        ip_address = device['ip_address']
+    if led_id_upper not in valid_leds:
+        return {"success": False, "error": f"Invalid led_id. Must be one of {valid_leds}"}
+
+    color_for_esp = color_upper
+    if led_id_upper == "LED1":
+        # LED1 supports RGB colors
+        if color_upper not in valid_colors_rgb:
+            return {"success": False, "error": f"Invalid color for LED1. Must be one of {valid_colors_rgb}"}
+            
+    elif led_id_upper == "LED2":
+        # LED2 only supports ON/OFF
+        if color_upper not in valid_colors_simple:
+            color_for_esp = "ON" if color_upper != "OFF" else "OFF"
+            
+    elif led_id_upper == "ALL":
+        if color_upper == "ON":
+            color_for_esp = "WHITE"
+        elif color_upper not in valid_colors_rgb:
+             return {"success": False, "error": f"Invalid color. Must be one of {valid_colors_rgb}"}
+
+    command_str = f"{led_id_upper}_{color_for_esp}"
+    command_bytes = command_str.encode('utf-8')
     
-    # --- MODIFIED: Send command over CONTROL port ---
+    if 'ip_address' not in device:
+         return {"success": False, "error": "Device IP not found in database."}
+    
+    ip_address = device['ip_address'].replace('esp32_', '').replace('_', '.')
+    
     control_addr = (ip_address, UDP_CONTROL_PORT)
     sock_control.sendto(command_bytes, control_addr)
     
-    # (Rest of your database/energy logic is fine)
-    energy_data = energy_sim.update_device_state(command.device_id, command.color.upper())
-    if energy_data:
-        db.add_energy_log(
-            energy_data['device_id'],
-            energy_data['power_watts'],
-            energy_data['duration_seconds'],
-            energy_data['color']
-        )
+    color_for_led1_logic = None
+    color_for_led2_logic = None
+
+    if led_id_upper == "LED1":
+        # LED1 gets the actual color
+        color_for_led1_logic = color_upper
+    elif led_id_upper == "LED2":
+        # LED2 gets ON/OFF only
+        color_for_led2_logic = "ON" if color_upper != "OFF" else "OFF"
+    elif led_id_upper == "ALL":
+        # LED1 gets color, LED2 gets ON/OFF
+        color_for_led1_logic = color_upper
+        color_for_led2_logic = "ON" if color_upper != "OFF" else "OFF"
+
+    if color_for_led1_logic:
+        db.update_device_color(command.device_id, "LED1", color_for_led1_logic)
+        energy_logs_1 = energy_sim.update_device_state(command.device_id, "LED1", color_for_led1_logic)
+        for log in energy_logs_1:
+            db.add_energy_log(log['device_id'], log['power_watts'], log['duration_seconds'], log['color'])
+
+    if color_for_led2_logic:
+        db.update_device_color(command.device_id, "LED2", color_for_led2_logic)
+        energy_logs_2 = energy_sim.update_device_state(command.device_id, "LED2", color_for_led2_logic)
+        for log in energy_logs_2:
+            db.add_energy_log(log['device_id'], log['power_watts'], log['duration_seconds'], log['color'])
     
-    db.update_device_color(command.device_id, command.color.upper())
-    db.add_command(f"Manual: {command.color}", command_bytes.decode(), command.device_id, True)
+    db.add_command(f"Manual: {command_str}", command_bytes.decode(), command.device_id, True)
     
     await broadcast_update("command_executed", {
         "device_id": command.device_id,
-        "command_text": f"Manual: {command.color}",
-        "color": command.color.upper(),
+        "command_text": f"Manual: {command_str}",
+        "led_id": led_id_upper,
+        "color_led1": color_for_led1_logic,
+        "color_led2": color_for_led2_logic,
         "success": True
     })
     
-    return {"success": True, "device_id": command.device_id, "color": command.color}
+    return {"success": True, "device_id": command.device_id, "led_id": led_id_upper, "color": color_upper}
 
-# (Other API endpoints are fine)
 @app.get("/api/commands")
 async def get_commands(limit: int = 50):
     commands = db.get_recent_commands(limit)
@@ -386,7 +470,6 @@ async def root():
 # --- Startup ---
 @app.on_event("startup")
 async def startup_event():
-    """Start UDP listener threads on app startup"""
     print("="*50)
     print("Voice Home Automation Server Starting...")
     print(f"HTTP API: http://localhost:{HTTP_PORT}")
@@ -395,7 +478,6 @@ async def startup_event():
     print(f"UDP Control Port: {UDP_CONTROL_PORT}")
     print("="*50)
     
-    # --- MODIFIED: Start BOTH listener threads ---
     udp_audio_thread = threading.Thread(target=udp_audio_listener, daemon=True)
     udp_audio_thread.start()
     

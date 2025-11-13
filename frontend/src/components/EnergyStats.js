@@ -27,24 +27,24 @@ function EnergyStats({ stats }) {
 
   return (
     <div className="energy-stats">
-      <div className="stat-card">
+      <div className="stat-card stat-highlight">
         <p className="stat-label">Total Energy</p>
-        <p className="stat-value">{formatEnergy(stats.total_energy_wh)}</p>
+        <p className="stat-value stat-animate">{formatEnergy(stats.total_energy_wh)}</p>
       </div>
 
       <div className="stat-card">
         <p className="stat-label">Total Duration</p>
-        <p className="stat-value">{formatDuration(stats.total_duration)}</p>
+        <p className="stat-value stat-animate">{formatDuration(stats.total_duration)}</p>
       </div>
 
-      <div className="stat-card">
+      <div className="stat-card stat-highlight">
         <p className="stat-label">Avg Power</p>
-        <p className="stat-value">{formatPower(stats.avg_power)}</p>
+        <p className="stat-value stat-animate">{formatPower(stats.avg_power)}</p>
       </div>
 
       <div className="stat-card">
         <p className="stat-label">Events</p>
-        <p className="stat-value">{stats.entries || 0}</p>
+        <p className="stat-value stat-animate">{stats.entries || 0}</p>
       </div>
     </div>
   );

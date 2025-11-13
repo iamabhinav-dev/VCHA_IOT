@@ -146,15 +146,111 @@
   flex-shrink: 0;
 }
 
+/* LED Control Rows */
+.led-control-row {
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  transition: all 0.2s;
+}
+
+.led-control-row:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.led-control-row:last-child {
+  margin-bottom: 0;
+}
+
+.led-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.led-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.led-info h4 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.led-status {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.led-status.led-on {
+  background: #e6f9f0;
+  color: #087f5b;
+}
+
+.led-status.led-off {
+  background: #f8f9fa;
+  color: #868e96;
+}
+
+/* Simple LED Controls (ON/OFF buttons) */
+.simple-led-controls {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.simple-btn {
+  flex: 1;
+  padding: 0.75rem 1.5rem;
+  border: 2px solid #dee2e6;
+  background: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #495057;
+  transition: all 0.2s;
+}
+
+.simple-btn:hover:not(:disabled) {
+  border-color: #4c6ef5;
+  color: #4c6ef5;
+  transform: translateY(-1px);
+}
+
+.simple-btn.active {
+  background: #4c6ef5;
+  border-color: #4c6ef5;
+  color: white;
+}
+
+.simple-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .color-swatches {
   display: flex;
   gap: 0.75rem;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .color-swatch-btn {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   border: 2px solid transparent;
   cursor: pointer;
@@ -180,6 +276,30 @@
 .color-swatch-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.color-swatch-btn.off-btn {
+  background: linear-gradient(135deg, transparent 45%, #ef4444 45%, #ef4444 55%, transparent 55%);
+  border: 2px solid #dee2e6;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #495057;
+}
+
+.color-swatch-btn.off-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: #f8f9fa;
+}
+
+.color-swatch-btn.off-btn.active {
+  border-color: #495057;
 }
 
 /* Energy section within unified card */
