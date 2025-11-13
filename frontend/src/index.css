@@ -1,3 +1,37 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+
+:root {
+  /* Colors */
+  --bg: #f8f9fb;
+  --surface: #ffffff;
+  --text: #212529;
+  --muted: #868e96;
+  --border: #e9ecef;
+  --border-strong: #dee2e6;
+  --brand: #4c6ef5;
+  --success: #20c997;
+  --danger: #fa5252;
+  --warning: #eab308;
+  --info: #3b82f6;
+
+  /* Spacing & Radius */
+  --radius-xl: 16px;
+  --radius-lg: 12px;
+  --radius-md: 10px;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* Shadows */
+  --shadow-1: 0 2px 6px rgba(0,0,0,0.05);
+  --shadow-2: 0 6px 16px rgba(0,0,0,0.06);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -5,16 +39,41 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background-color: var(--bg);
   min-height: 100vh;
+  color: var(--text);
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+  font-family: 'JetBrains Mono', source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
+}
+
+/* Utilities */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 var(--space-8);
+}
+
+h1, h2, h3 {
+  letter-spacing: -0.02em;
+}
+
+/* Minimal scrollbars */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: #f1f3f5;
+}
+*::-webkit-scrollbar-thumb {
+  background: #dde1e6;
+  border-radius: 10px;
 }

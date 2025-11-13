@@ -1,5 +1,4 @@
 import React from 'react';
-import { Zap, Clock, Activity, BarChart3 } from 'lucide-react';
 import './EnergyStats.css';
 
 function EnergyStats({ stats }) {
@@ -29,43 +28,23 @@ function EnergyStats({ stats }) {
   return (
     <div className="energy-stats">
       <div className="stat-card">
-        <div className="stat-icon" style={{ background: '#fee2e2' }}>
-          <Zap size={24} color="#ef4444" />
-        </div>
-        <div className="stat-content">
-          <p className="stat-label">Total Energy</p>
-          <p className="stat-value">{formatEnergy(stats.total_energy_wh)}</p>
-        </div>
+        <p className="stat-label">Total Energy</p>
+        <p className="stat-value">{formatEnergy(stats.total_energy_wh)}</p>
       </div>
 
       <div className="stat-card">
-        <div className="stat-icon" style={{ background: '#dbeafe' }}>
-          <Clock size={24} color="#3b82f6" />
-        </div>
-        <div className="stat-content">
-          <p className="stat-label">Total Duration</p>
-          <p className="stat-value">{formatDuration(stats.total_duration)}</p>
-        </div>
+        <p className="stat-label">Total Duration</p>
+        <p className="stat-value">{formatDuration(stats.total_duration)}</p>
       </div>
 
       <div className="stat-card">
-        <div className="stat-icon" style={{ background: '#dcfce7' }}>
-          <Activity size={24} color="#22c55e" />
-        </div>
-        <div className="stat-content">
-          <p className="stat-label">Avg Power</p>
-          <p className="stat-value">{formatPower(stats.avg_power)}</p>
-        </div>
+        <p className="stat-label">Avg Power</p>
+        <p className="stat-value">{formatPower(stats.avg_power)}</p>
       </div>
 
       <div className="stat-card">
-        <div className="stat-icon" style={{ background: '#fef3c7' }}>
-          <BarChart3 size={24} color="#eab308" />
-        </div>
-        <div className="stat-content">
-          <p className="stat-label">Events</p>
-          <p className="stat-value">{stats.entries || 0}</p>
-        </div>
+        <p className="stat-label">Events</p>
+        <p className="stat-value">{stats.entries || 0}</p>
       </div>
     </div>
   );

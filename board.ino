@@ -5,9 +5,9 @@
 // --- Configuration ---
 const char* ssid = "Abhi nav";
 const char* password = "00000001";
-const char* udpAddress = "192.168.172.75"; // <-- IMPORTANT: Make sure this is your computer's IP
+const char* udpAddress = "192.168.37.139"; // <-- IMPORTANT: Make sure this is your computer's IP
 
-// --- NEW: Dedicated Ports ---
+// --- Dedicated Ports ---
 const int udpAudioPort = 12345;   // Port for sending audio
 const int udpControlPort = 12346; // Port for commands and status
 
@@ -15,6 +15,11 @@ const int udpControlPort = 12346; // Port for commands and status
 const int redLedPin = 18;
 const int greenLedPin = 22;
 const int blueLedPin = 19;
+
+// --- NEW: Audio Activity LED ---
+const int audioActivityLedPin = 23;     // LED to show when sound is detected
+const int AUDIO_THRESHOLD = 100;      // <-- *** TUNE THIS VALUE ***
+                                      
 
 // --- I2S Microphone Pins ---
 #define I2S_WS 2
@@ -38,7 +43,7 @@ const unsigned long statusUpdateInterval = 5000; // Send status every 5 seconds
 // --- Current LED State ---
 String currentColor = "OFF";
 
-// --- NEW: Two UDP Objects ---
+// --- Two UDP Objects ---
 WiFiUDP udpAudio;   // For sending audio
 WiFiUDP udpControl; // For commands and status
 
@@ -49,13 +54,13 @@ void setLedColor(int red, int green, int blue) {
   digitalWrite(blueLedPin, blue);
 }
 
-// --- NEW: Function to update current color state ---
+// --- Function to update current color state ---
 void updateColorState(String color) {
   currentColor = color;
   Serial.printf("[STATE] Current color updated to: %s\n", color.c_str());
 }
 
-// --- MODIFIED: Function to send status update to server ---
+// --- Function to send status update to server ---
 void sendStatusUpdate() {
   String statusMessage = "STATUS:" + currentColor;
   // Send status over the CONTROL port
@@ -74,7 +79,12 @@ void setup() {
   pinMode(greenLedPin, OUTPUT);
   pinMode(blueLedPin, OUTPUT);
   setLedColor(LOW, LOW, LOW); // Start with all LEDs off
-  Serial.println("[SETUP] LED GPIOs initialized.");
+  Serial.println("[SETUP] RGB LED GPIOs initialized.");
+
+  // --- NEW: Setup Audio Activity LED ---
+  pinMode(audioActivityLedPin, OUTPUT);
+  digitalWrite(audioActivityLedPin, LOW); // Start with it off
+  Serial.println("[SETUP] Audio Activity LED initialized on GPIO 23.");
 
   // Connect to WiFi
   Serial.printf("[SETUP] Connecting to WiFi: %s\n", ssid);
@@ -87,7 +97,7 @@ void setup() {
   Serial.print("[INFO] ESP32 IP Address: ");
   Serial.println(WiFi.localIP());
 
-  // Initialize I2S microphone (No changes)
+  // Initialize I2S microphone
   Serial.println("[SETUP] Configuring I2S...");
   i2s_config_t i2s_config = {
       .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
@@ -110,7 +120,7 @@ void setup() {
   i2s_set_pin(I2S_PORT, &pin_config);
   Serial.println("[SETUP] I2S driver installed successfully.");
 
-  // --- MODIFIED: Start listening on the CONTROL port ---
+  // Start listening on the CONTROL port
   udpControl.begin(udpControlPort);
   Serial.printf("[SETUP] UDP listener for commands started on port %d.\n", udpControlPort);
   Serial.printf("[SETUP] UDP sender for audio will use port %d.\n", udpAudioPort);
@@ -125,18 +135,51 @@ void setup() {
 }
 
 void loop() {
-  // 1. Read and send audio data (MODIFIED: uses udpAudio)
+  // 1. Read and send audio data
   size_t bytesRead = 0;
   esp_err_t result = i2s_read(I2S_PORT, &audio_buffer, audio_buffer_size * sizeof(int16_t), &bytesRead, portMAX_DELAY);
 
+  int average_magnitude = 0;
+  int samples_read = 0;
+
   if (result == ESP_OK && bytesRead > 0) {
-    // Send audio over the AUDIO port
+    
+    // --- NEW: Robust Audio Activity Logic ---
+    
+    // Calculate how many 16-bit samples we actually read
+    samples_read = bytesRead / sizeof(int16_t);
+
+    uint64_t total_magnitude = 0;
+    for (int i = 0; i < samples_read; i++) {
+      total_magnitude += abs(audio_buffer[i]);
+    }
+
+    // Prevent division by zero
+    if (samples_read > 0) {
+      average_magnitude = total_magnitude / samples_read;
+    }
+    
+    // Control the LED
+    if (average_magnitude > AUDIO_THRESHOLD) {
+      digitalWrite(audioActivityLedPin, HIGH); // Sound detected
+    } else {
+      digitalWrite(audioActivityLedPin, LOW);  // Silence
+    }
+    // --- END OF NEW LOGIC ---
+
+    // Send audio over the AUDIO port (No change)
     udpAudio.beginPacket(udpAddress, udpAudioPort);
     udpAudio.write((const uint8_t*)audio_buffer, bytesRead);
     udpAudio.endPacket();
   }
 
-  // 2. Check for incoming commands from the server (MODIFIED: uses udpControl)
+  // --- CRITICAL DEBUGGING ---
+  // This will print every loop.
+  // We need to see these numbers.
+  Serial.printf("Bytes Read: %d, \t Audio Level: %d\n", bytesRead, average_magnitude);
+
+
+  // 2. Check for incoming commands from the server (uses udpControl)
   int packetSize = udpControl.parsePacket();
   if (packetSize) {
     char incomingPacket[32];
@@ -176,7 +219,7 @@ void loop() {
     Serial.printf(">>> [LED] Updated to: %s\n\n", currentColor.c_str());
   }
 
-  // 3. Send periodic status updates (MODIFIED: uses udpControl, no logic change)
+  // 3. Send periodic status updates (uses udpControl)
   unsigned long currentMillis = millis();
   if (currentMillis - lastStatusUpdate >= statusUpdateInterval) {
     sendStatusUpdate();

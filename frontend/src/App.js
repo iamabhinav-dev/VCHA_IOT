@@ -14,8 +14,6 @@ function App() {
   const [commands, setCommands] = useState([]);
   const [energyStats, setEnergyStats] = useState(null);
   const [energyTimeline, setEnergyTimeline] = useState([]);
-  const [wsStatus, setWsStatus] = useState('Disconnected');
-  const [selectedHours, setSelectedHours] = useState(24);
 
   // Fetch devices
   const fetchDevices = useCallback(async () => {
@@ -40,22 +38,22 @@ function App() {
   // Fetch energy stats
   const fetchEnergyStats = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/energy/stats?hours=${selectedHours}`);
+      const response = await axios.get(`${API_BASE_URL}/api/energy/stats?hours=24`);
       setEnergyStats(response.data);
     } catch (error) {
       console.error('Error fetching energy stats:', error);
     }
-  }, [selectedHours]);
+  }, []);
 
   // Fetch energy timeline
   const fetchEnergyTimeline = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/energy/timeline?hours=${selectedHours}`);
+      const response = await axios.get(`${API_BASE_URL}/api/energy/timeline?hours=24`);
       setEnergyTimeline(response.data.timeline || []);
     } catch (error) {
       console.error('Error fetching energy timeline:', error);
     }
-  }, [selectedHours]);
+  }, []);
 
   // Control device
   const controlDevice = async (deviceId, color) => {
@@ -85,7 +83,6 @@ function App() {
 
       ws.onopen = () => {
         console.log('WebSocket connected');
-        setWsStatus('Connected');
       };
 
       ws.onmessage = (event) => {
@@ -106,12 +103,10 @@ function App() {
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
-        setWsStatus('Error');
       };
 
       ws.onclose = () => {
         console.log('WebSocket disconnected');
-        setWsStatus('Disconnected');
         // Attempt to reconnect after 5 seconds
         reconnectTimeout = setTimeout(connectWebSocket, 5000);
       };
@@ -151,66 +146,44 @@ function App() {
 
   return (
     <div className="App">
-      <header className="app-header">
-        <div className="header-content">
-          <h1>🏠 Voice-Controlled Home Automation</h1>
-          <div className="header-status">
-            <span className={`ws-status ${wsStatus.toLowerCase()}`}>
-              {wsStatus === 'Connected' ? '🟢' : '🔴'} {wsStatus}
-            </span>
+      <main className="app-main container">
+        <h2>Connected Devices</h2>
+        
+        {devices.length === 0 ? (
+          <div className="no-devices">
+            <p>No devices connected yet...</p>
+            <p className="hint">Make sure your ESP32 is running and connected to WiFi</p>
           </div>
-        </div>
-      </header>
+        ) : (
+          devices.map((device) => (
+            <div key={device.device_id} className="unified-card">
+              <div className="card-main-content">
+                <div className="left-content">
+                  <DeviceCard
+                    device={device}
+                    onControl={controlDevice}
+                  />
+                  
+                  <div className="energy-section">
+                    <div className="section-header">
+                      <h3>Energy Consumption</h3>
+                      <h3>Power</h3>
+                    </div>
+                    {energyStats && <EnergyStats stats={energyStats} />}
+                    {energyTimeline.length > 0 && (
+                      <EnergyChart timeline={energyTimeline} />
+                    )}
+                  </div>
+                </div>
 
-      <main className="app-main">
-        <section className="devices-section">
-          <h2>Connected Devices</h2>
-          <div className="devices-grid">
-            {devices.length === 0 ? (
-              <div className="no-devices">
-                <p>No devices connected yet...</p>
-                <p className="hint">Make sure your ESP32 is running and connected to WiFi</p>
+                <div className="right-content">
+                  <h3>Command History</h3>
+                  <CommandHistory commands={commands} />
+                </div>
               </div>
-            ) : (
-              devices.map((device) => (
-                <DeviceCard
-                  key={device.device_id}
-                  device={device}
-                  onControl={controlDevice}
-                />
-              ))
-            )}
-          </div>
-        </section>
-
-        <div className="dashboard-grid">
-          <section className="energy-section">
-            <div className="section-header">
-              <h2>Energy Monitoring</h2>
-              <select
-                value={selectedHours}
-                onChange={(e) => setSelectedHours(Number(e.target.value))}
-                className="time-selector"
-              >
-                <option value={1}>Last Hour</option>
-                <option value={6}>Last 6 Hours</option>
-                <option value={24}>Last 24 Hours</option>
-                <option value={168}>Last Week</option>
-              </select>
             </div>
-            
-            {energyStats && <EnergyStats stats={energyStats} />}
-            
-            {energyTimeline.length > 0 && (
-              <EnergyChart timeline={energyTimeline} />
-            )}
-          </section>
-
-          <section className="commands-section">
-            <h2>Command History</h2>
-            <CommandHistory commands={commands} />
-          </section>
-        </div>
+          ))
+        )}
       </main>
     </div>
   );

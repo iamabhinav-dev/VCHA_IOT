@@ -198,7 +198,7 @@ def process_audio_buffer(audio_data_bytes, client_address):
             
         else:
             print("[INFO] No command recognized in the text.")
-            db.add_command(text, "NONE", device_id, False)
+            # Don't save unrecognized commands to database
             
             asyncio.run(broadcast_update("command_failed", {
                 "device_id": device_id,
@@ -208,10 +208,10 @@ def process_audio_buffer(audio_data_bytes, client_address):
 
     except sr.UnknownValueError:
         print("[ERROR] Google could not understand the audio.")
-        db.add_command("UNKNOWN", "ERROR", device_id, False)
+        # Don't save unknown/failed recognition to database
     except sr.RequestError as e:
         print(f"[ERROR] Could not request results from Google; {e}")
-        db.add_command("ERROR", "ERROR", device_id, False)
+        # Don't save API errors to database
 
 # --- MODIFIED: UDP Audio Processing Thread ---
 def udp_audio_listener():

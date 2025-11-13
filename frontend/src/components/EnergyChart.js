@@ -1,5 +1,5 @@
 import React from 'react';
-import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import './EnergyChart.css';
 
 function EnergyChart({ timeline }) {
@@ -44,70 +44,69 @@ function EnergyChart({ timeline }) {
   };
 
   return (
-    <div className="energy-chart">
-      <h3>Energy Consumption Over Time</h3>
-      
+    <div className="energy-chart-dual">
       {chartData.length === 0 ? (
         <div className="no-data">
           <p>No energy data available yet</p>
         </div>
       ) : (
-        <>
-          <div className="chart-container">
-            <ResponsiveContainer width="100%" height={250}>
+        <div className="charts-grid">
+          <div className="chart-box">
+            <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#e9ecef" />
                 <XAxis 
                   dataKey="time" 
-                  stroke="#666"
-                  style={{ fontSize: '0.85rem' }}
+                  stroke="#868e96"
+                  style={{ fontSize: '0.75rem' }}
+                  tick={{ fill: '#868e96' }}
                 />
                 <YAxis 
-                  stroke="#666"
-                  style={{ fontSize: '0.85rem' }}
-                  tickFormatter={(value) => value < 1 ? `${(value * 1000).toFixed(0)}m` : value.toFixed(2)}
+                  stroke="#868e96"
+                  style={{ fontSize: '0.75rem' }}
+                  tick={{ fill: '#868e96' }}
+                  tickFormatter={(value) => value < 1 ? `${(value * 1000).toFixed(0)}m` : value.toFixed(1)}
                 />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend />
                 <Area 
                   type="monotone" 
                   dataKey="energy" 
-                  stroke="#ef4444" 
-                  fill="#fecaca"
-                  name="Energy (Wh)"
+                  stroke="#d1d5db" 
+                  fill="#e9ecef"
+                  strokeWidth={2}
                 />
               </AreaChart>
             </ResponsiveContainer>
           </div>
 
-          <div className="chart-container">
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+          <div className="chart-box">
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e9ecef" />
                 <XAxis 
                   dataKey="time" 
-                  stroke="#666"
-                  style={{ fontSize: '0.85rem' }}
+                  stroke="#868e96"
+                  style={{ fontSize: '0.75rem' }}
+                  tick={{ fill: '#868e96' }}
                 />
                 <YAxis 
-                  stroke="#666"
-                  style={{ fontSize: '0.85rem' }}
-                  tickFormatter={(value) => value < 1 ? `${(value * 1000).toFixed(0)}m` : value.toFixed(2)}
+                  stroke="#868e96"
+                  style={{ fontSize: '0.75rem' }}
+                  tick={{ fill: '#868e96' }}
+                  tickFormatter={(value) => value < 1 ? `${(value * 1000).toFixed(0)}m` : value.toFixed(1)}
                 />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend />
-                <Line 
+                <Area 
                   type="monotone" 
                   dataKey="power" 
-                  stroke="#3b82f6" 
+                  stroke="#d1d5db" 
+                  fill="#e9ecef"
                   strokeWidth={2}
-                  dot={{ r: 3 }}
-                  name="Power (W)"
                 />
-              </LineChart>
+              </AreaChart>
             </ResponsiveContainer>
           </div>
-        </>
+        </div>
       )}
     </div>
   );
